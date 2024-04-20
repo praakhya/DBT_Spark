@@ -53,10 +53,13 @@ def streamJob(topic):
     
     def modifyTweetDataframe(df):
         return df.withColumn("user_id",column("user.id")).drop("user")
+    def modifyRetweetDataframe(df):
+        newdf = df.withColumn("user_id",column("user.id")).drop("user")
+        return newdf.withColumn("original_id",column("retweeted_status.id")).drop("retweeted_status")
     dataFrameModifierDict = {
         'users': doNothing,
         'tweet' : modifyTweetDataframe,
-        'retweet' : modifyTweetDataframe
+        'retweet' : modifyRetweetDataframe
     }
     def writeToTable(df, tableName):
             return df.write \
