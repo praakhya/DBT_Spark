@@ -34,5 +34,9 @@ def batchCopyTableJob(tableName):
     print(f"{tableName} copied to {tableName}_copy, Started at : {startTime.strftime(time_format)}, Ended at {endTime.strftime(time_format)}")
 
 if __name__ == "__main__":
-    batchCopyTableJob("users")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--topic')
+    args = parser.parse_args()
+    topic = args.topic
+    batchCopyTableJob(topic)
     

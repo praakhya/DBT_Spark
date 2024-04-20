@@ -49,7 +49,8 @@ def streamJob(topic):
     }
     
     def doNothing(df):
-        pass
+        return df
+    
     def modifyTweetDataframe(df):
         return df.withColumn("user_id",column("user.id")).drop("user")
     dataFrameModifierDict = {
