@@ -1,0 +1,28 @@
+Commands to run
+
+1. Start zookeeper
+zookeeper-server-start.sh $KAFKA_HOME/config/zookeeper.properties
+
+2. Start kafka server
+kafka-server-start.sh $KAFKA_HOME/config/server.properties
+
+3. Start spark
+$SPARK_HOME/sbin/start-all.sh
+
+4. Stop all spark instances
+$SPARK_HOME/sbin/stop-all.sh
+
+5. Spark submit
+spark-submit --packages org.apache.spark:spark-streaming-kafka-0-10_2.12:3.5.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.apache.kafka:kafka-clients:3.7.0,com.mysql:mysql-connector-j:8.3.0 FILE.py --topic TOPIC
+
+6. Kafka producer
+kafka-console-producer.sh --topic TOPIC --bootstrap-server localhost:9092
+
+7. Kafka consumer
+kafka-console-consumer.sh --topic TOPIC --bootstrap-server localhost:9092
+
+8. Create topic
+kafka-topics.sh --topic TOPIC --create --bootstrap-server localhost:9092
+
+9. Delete topic
+kafka-topics.sh --topic TOPIC --delete --bootstrap-server localhost:9092

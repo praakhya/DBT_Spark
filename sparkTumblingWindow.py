@@ -1,3 +1,7 @@
+"""
+Not being used right now, please ignore
+"""
+
 import argparse
 from datetime import datetime
 from pyspark.sql import SparkSession

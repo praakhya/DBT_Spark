@@ -1,9 +1,13 @@
+""" 
+A streaming job that converts a csv/text file into mysql db using Spark and Kafka
+"""
+
 import argparse
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, to_timestamp, current_timestamp, column
 from pyspark.sql.types import StringType, StructField, StructType, ArrayType, LongType, BooleanType
 def streamJob(topic):
-    schemas = {
+    schemas = { #choosing the schema according to the topic
         "users":[
             StructField('id', LongType(), True), 
             StructField('name', StringType(), True),
@@ -48,20 +52,21 @@ def streamJob(topic):
         ],
     }
     
-    def doNothing(df):
+    def doNothing(df): #no modifications have to be made to the schema
         return df
     
-    def modifyTweetDataframe(df):
+    def modifyTweetDataframe(df): #tweet and retweet dataframes have to be modified to remove nesting
         return df.withColumn("user_id",column("user.id")).drop("user")
     def modifyRetweetDataframe(df):
         newdf = df.withColumn("user_id",column("user.id")).drop("user")
         return newdf.withColumn("original_id",column("retweeted_status.id")).drop("retweeted_status")
-    dataFrameModifierDict = {
+    
+    dataFrameModifierDict = { #topic-callback mapping to modify schema according to topic
         'users': doNothing,
         'tweet' : modifyTweetDataframe,
         'retweet' : modifyRetweetDataframe
     }
-    def writeToTable(df, tableName):
+    def writeToTable(df, tableName): #Writing the dataframe to mysql table
             return df.write \
             .format("jdbc") \
     .option("driver","com.mysql.cj.jdbc.Driver") \
@@ -76,20 +81,8 @@ def streamJob(topic):
         print("Printing epoch_id: ", epoch_id)
         writeToTable(current_df, topic)
         current_df_final = current_df
-        #\
-        #        .withColumn("processed_at", lit(processed_at))\
-        #        .withColumn("batch_it", lit(epoc_id))
-    """     current_df_final.write \
-            .format("jdbc") \
-    .option("driver","com.mysql.cj.jdbc.Driver") \
-    .option("url", "jdbc:mysql://localhost:3306/dbt_twitter") \
-    .option("dbtable", "users") \
-    .option("user", "dbt") \
-    .option("password", "dbt123") \
-        .mode("append") \
-    .save()
-    """
     
+    #starting a spark session
     spark = SparkSession \
         .builder \
         .appName("Streaming from Kafka") \
@@ -99,18 +92,21 @@ def streamJob(topic):
         .master("local[*]") \
         .getOrCreate()
 
-
+    #choosing correct schema
     json_schema = StructType(schemas[topic])
 
+    #subscribing to kafka topic to retrieve raw data
     streaming_df = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
         .option("subscribe", topic) \
             .option("includeHeaders", "true")\
                 .load()
-        
+    
+    #taking each streamed line as a string    
     json_df = streaming_df.selectExpr("cast(value as string) as value")
 
+    #value contains the actual data of the message. using .select(value.*) we obtain the json heirarchy
     json_expanded_df = json_df \
     .withColumn("value", from_json(json_df["value"], json_schema)) \
     .select("value.*") \
@@ -118,20 +114,18 @@ def streamJob(topic):
     .withColumn("created_at",to_timestamp("created_at")) \
     .withColumn("inserted_at", current_timestamp())
     
+    #modifying the schema according to the correct callback
     json_expanded_df = dataFrameModifierDict[topic](json_expanded_df)
 
-    #json_expanded_df.writeStream.format("console").outputMode("append").start().awaitTermination()
-
+    #writing the dataframe to mysql
     print("Created expanded dataframe...")
     json_expanded_df.writeStream \
     .outputMode("update") \
     .foreachBatch(save_to_mysql) \
     .start() \
     .awaitTermination()
-    #        .foreachBatch(save_to_mysql) \
-    #        .start()
 
-if __name__ == "__main__":
+if __name__ == "__main__": #Selecting the topic for streaming
     parser = argparse.ArgumentParser()
     parser.add_argument('--topic')
     args = parser.parse_args()

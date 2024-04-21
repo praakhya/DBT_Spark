@@ -1,8 +1,13 @@
+"""
+Using spark streaming with tumbling window to store number of created entities in 15 minute windows
+"""
+
 import argparse
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, to_timestamp, current_timestamp, column, window, count
 from pyspark.sql.types import StringType, StructField, StructType, ArrayType, LongType, BooleanType
 def writeToTable(df, tableName):
+    #writing dataframe to tableName_window table
             return df.write \
             .format("jdbc") \
     .option("driver","com.mysql.cj.jdbc.Driver") \
@@ -19,7 +24,7 @@ def save_to_mysql(current_df, epoch_id):
     current_df_final = current_df
 
 def streamJob(topic):
-    schemas = {
+    schemas = { #Schemas for each topic
         "users":[
             StructField('id', LongType(), True), 
             StructField('name', StringType(), True),
@@ -64,26 +69,17 @@ def streamJob(topic):
         ],
     }
     
-    def modifyTweetDataframe(df):
+    def modifyWindowDataframe(df): #The window dataframe is in json format with start and end inside window attribute. This has to be converted to a non-nested format
         return df.withColumn("window_start",column("window.start")) \
             .withColumn("window_end",column("window.end"))  \
     .drop("window")
-    dataFrameModifierDict = {
-        'users': modifyTweetDataframe,
-        'tweet' : modifyTweetDataframe,
-        'retweet' : modifyTweetDataframe
+    dataFrameModifierDict = { #All topics have to undergo same modification of dataframe
+        'users': modifyWindowDataframe,
+        'tweet' : modifyWindowDataframe,
+        'retweet' : modifyWindowDataframe
     }
-    def writeToTable(df, tableName):
-            return df.write \
-            .format("jdbc") \
-    .option("driver","com.mysql.cj.jdbc.Driver") \
-    .option("url", "jdbc:mysql://localhost:3306/dbt_twitter") \
-    .option("dbtable", tableName) \
-    .option("user", "dbt") \
-    .option("password", "dbt123") \
-        .mode("append") \
-    .save()
 
+    #Start spark session
     spark = SparkSession \
         .builder \
         .appName("Streaming from Kafka") \
@@ -93,7 +89,7 @@ def streamJob(topic):
         .master("local[*]") \
         .getOrCreate()
 
-
+    #Choose json schema
     json_schema = StructType(schemas[topic])
 
     streaming_df = spark.readStream \
@@ -103,8 +99,10 @@ def streamJob(topic):
             .option("includeHeaders", "true")\
                 .load()
         
+    #cast the line from kafka into a string
     json_df = streaming_df.selectExpr("cast(value as string) as value")
 
+    #parsing the json using chosen schema and adding/modifying relevant columns
     json_expanded_df = json_df \
     .withColumn("value", from_json(json_df["value"], json_schema)) \
     .select("value.*") \
@@ -112,28 +110,29 @@ def streamJob(topic):
     .withColumn("created_at",to_timestamp("created_at")) \
     .withColumn("inserted_at", current_timestamp())
     
+    #printing schema to console
     json_expanded_df.printSchema()
     
-    #json_expanded_df.writeStream.format("console").outputMode("append").start().awaitTermination()
-
+    #Creating a 15 minute window and aggregating id count by grouping windows
     print("Created expanded dataframe...")
     aggregated_df = json_expanded_df \
     .groupBy(window(column("created_at"),"15 minutes")) \
         .agg(count("id")) \
          .withColumnRenamed("count(id)", "count")
     
+    #window structure has to be made suitable for mysql
     aggregated_df = dataFrameModifierDict[topic](aggregated_df)
     aggregated_df.printSchema()
+    
+    #saving dataframe to mysql
     aggregated_df \
     .writeStream \
     .outputMode("update") \
     .foreachBatch(save_to_mysql) \
     .start() \
     .awaitTermination()
-    #        .foreachBatch(save_to_mysql) \
-    #        .start()
 
-if __name__ == "__main__":
+if __name__ == "__main__": #Choose topic for window streaming job
     parser = argparse.ArgumentParser()
     parser.add_argument('--topic')
     args = parser.parse_args()
